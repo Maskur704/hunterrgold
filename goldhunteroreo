@@ -1,0 +1,905 @@
+--==================================================
+-- OREO HUB | AUTO GOLD V15 FULL
+-- AUTO SCAN | AUTO GOLD | AUTO PORTAL
+-- AUTO TELEPORT SMELTER + AUTO E
+--==================================================
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+-- WAIT FOR CLIENT INITIALIZATION (AUTO EXEC)
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+while not Players.LocalPlayer do
+    task.wait(0.25)
+end
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+local function CharacterReady()
+    local Character = Player.Character
+    if not Character or not Character:IsDescendantOf(workspace) then
+        return false
+    end
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    return game:IsLoaded() and PlayerGui.Parent == Player
+        and Humanoid ~= nil and Humanoid.Health > 0
+        and Character:FindFirstChild("HumanoidRootPart") ~= nil
+end
+
+while not CharacterReady() do
+    task.wait(0.25)
+end
+
+-- SETTINGS
+local LIMIT = 10
+local SCAN_DELAY = 5
+local DIG_DELAY = 2
+local PORTAL_DELAY = 1.5
+local SMELT_DELAY = 3
+
+local AutoScan = false
+local AutoGet = false
+local AutoPortal = false
+local AutoSmelter = false
+local AutoLift = false
+local SmeltAt = nil
+local GoldBeforeSmelt = nil
+local LiftRequested = false
+local LastLift = -math.huge
+
+local Running = true
+local Completed = false
+local PortalActivated = false
+local Busy = false
+local Progress = 0
+local LastScan = -math.huge
+local LastPortal = -math.huge
+local LastSmelt = -math.huge
+local Visited = setmetatable({}, {__mode = "k"})
+
+-- CLEAN OLD GUI
+local Old = PlayerGui:FindFirstChild("OreoGoldHub")
+if Old then
+    Old:Destroy()
+end
+
+-- GUI
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "OreoGoldHub"
+GUI.ResetOnSpawn = false
+GUI.DisplayOrder = 99999
+GUI.Parent = PlayerGui
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.fromOffset(290, 420)
+Frame.Position = UDim2.new(0.5, -145, 0.15, 0)
+Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+Frame.Parent = GUI
+
+Instance.new("UICorner", Frame).CornerRadius =
+    UDim.new(0, 12)
+
+local Stroke = Instance.new("UIStroke", Frame)
+Stroke.Color = Color3.fromRGB(255, 195, 40)
+Stroke.Thickness = 1.5
+
+-- LABEL SYSTEM
+local function Label(Text, Y, Height, Size)
+    local Object = Instance.new("TextLabel")
+    Object.Size = UDim2.new(1, -20, 0, Height)
+    Object.Position = UDim2.fromOffset(10, Y)
+    Object.BackgroundTransparency = 1
+    Object.Text = Text
+    Object.TextColor3 = Color3.new(1, 1, 1)
+    Object.Font = Enum.Font.GothamBold
+    Object.TextSize = Size
+    Object.Parent = Frame
+    return Object
+end
+
+local Title = Label("OREO HUB", 5, 30, 21)
+Title.TextColor3 = Color3.fromRGB(255, 210, 50)
+Title.Active = true
+
+Label("WGC | AUTO GOLD V15", 34, 22, 12)
+
+local Counter = Label("Gold Locations: 0", 330, 20, 13)
+local DigCounter = Label("Dig Progress: 0/10", 350, 20, 14)
+
+local Status = Label("Status: Standby", 390, 25, 12)
+Status.TextColor3 = Color3.fromRGB(255, 210, 50)
+
+-- PROGRESS BAR
+local Bar = Instance.new("Frame")
+Bar.Size = UDim2.new(1, -24, 0, 9)
+Bar.Position = UDim2.fromOffset(12, 377)
+Bar.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+Bar.ClipsDescendants = true
+Bar.Parent = Frame
+
+Instance.new("UICorner", Bar)
+
+local Fill = Instance.new("Frame")
+Fill.Size = UDim2.fromScale(0, 1)
+Fill.BackgroundColor3 = Color3.fromRGB(255, 195, 40)
+Fill.Parent = Bar
+
+Instance.new("UICorner", Fill)
+
+local function UpdateProgress()
+    DigCounter.Text = string.format(
+        "Dig Progress: %d/%d", Progress, LIMIT
+    )
+
+    Fill.Size = UDim2.fromScale(
+        math.clamp(Progress / LIMIT, 0, 1), 1
+    )
+end
+
+-- BUTTON SYSTEM
+local function Button(Text, Y, Callback)
+    local Object = Instance.new("TextButton")
+    Object.Size = UDim2.new(1, -24, 0, 36)
+    Object.Position = UDim2.fromOffset(12, Y)
+    Object.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    Object.TextColor3 = Color3.new(1, 1, 1)
+    Object.Font = Enum.Font.GothamBold
+    Object.TextSize = 13
+    Object.Text = Text
+    Object.Parent = Frame
+
+    Instance.new("UICorner", Object).CornerRadius =
+        UDim.new(0, 8)
+
+    Object.Activated:Connect(Callback)
+    return Object
+end
+
+local ScanButton
+local GetButton
+local PortalButton
+local SmelterButton
+local LiftButton
+
+local function UpdateToggle()
+    local function SetToggle(Object, Text, Enabled)
+        if not Object then return end
+
+        Object.Text = Text
+            .. (Enabled and " : ON" or " : OFF")
+
+        Object.BackgroundColor3 = Enabled
+            and Color3.fromRGB(35, 145, 75)
+            or Color3.fromRGB(45, 45, 50)
+    end
+
+    SetToggle(ScanButton, "AUTO SCAN GOLD", AutoScan)
+    SetToggle(GetButton, "AUTO GET GOLD", AutoGet)
+    SetToggle(PortalButton, "AUTO TELEPORT PORTAL", AutoPortal)
+    SetToggle(SmelterButton, "AUTO E PELEBURAN", AutoSmelter)
+    SetToggle(LiftButton, "AUTO TELEPORT LIFT", AutoLift)
+end
+
+-- AUTO SCAN TOGGLE
+ScanButton = Button("AUTO SCAN GOLD : OFF", 62, function()
+    if Completed then
+        Status.Text = "Reset progress first"
+        return
+    end
+
+    AutoScan = not AutoScan
+    UpdateToggle()
+end)
+
+-- AUTO GET TOGGLE
+GetButton = Button("AUTO GET GOLD : OFF", 105, function()
+    if Completed then
+        Status.Text = "Reset progress first"
+        return
+    end
+
+    AutoGet = not AutoGet
+    UpdateToggle()
+end)
+
+-- AUTO PORTAL TOGGLE
+PortalButton = Button(
+    "AUTO TELEPORT PORTAL : OFF", 148,
+    function()
+        AutoPortal = not AutoPortal
+        UpdateToggle()
+    end
+)
+
+-- AUTO PELEBURAN TOGGLE
+SmelterButton = Button(
+    "AUTO E PELEBURAN : OFF", 191,
+    function()
+        AutoSmelter = not AutoSmelter
+        UpdateToggle()
+
+        Status.Text = AutoSmelter
+            and "Auto Peleburan enabled"
+            or "Auto Peleburan disabled"
+    end
+)
+
+LiftButton = Button("AUTO TELEPORT LIFT : OFF", 234, function()
+    AutoLift = not AutoLift
+    UpdateToggle()
+end)
+
+-- RESET PROGRESS
+Button("RESET PROGRESS", 277, function()
+    if Busy then
+        Status.Text = "Please wait..."
+        return
+    end
+
+    AutoScan = false
+    AutoGet = false
+    AutoSmelter = false
+    AutoLift = false
+    SmeltAt = nil
+    GoldBeforeSmelt = nil
+    LiftRequested = false
+    LastLift = -math.huge
+
+    Completed = false
+    PortalActivated = false
+    Progress = 0
+    LastScan = -math.huge
+    LastPortal = -math.huge
+    LastSmelt = -math.huge
+    Visited = setmetatable({}, {__mode = "k"})
+
+    UpdateToggle()
+    UpdateProgress()
+
+    Status.TextColor3 = Color3.fromRGB(255, 210, 50)
+    Status.Text = "Progress reset"
+end)
+
+-- DRAG GUI PC + MOBILE
+local Dragging = false
+local DragStart
+local StartPosition
+local DragInput
+
+Title.InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+        or Input.UserInputType == Enum.UserInputType.Touch then
+
+        Dragging = true
+        DragStart = Input.Position
+        StartPosition = Frame.Position
+
+        Input.Changed:Connect(function()
+            if Input.UserInputState == Enum.UserInputState.End then
+                Dragging = false
+            end
+        end)
+    end
+end)
+
+Title.InputChanged:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseMovement
+        or Input.UserInputType == Enum.UserInputType.Touch then
+        DragInput = Input
+    end
+end)
+
+local DragConnection = UIS.InputChanged:Connect(function(Input)
+    if Dragging and Input == DragInput then
+        local Delta = Input.Position - DragStart
+
+        Frame.Position = UDim2.new(
+            StartPosition.X.Scale,
+            StartPosition.X.Offset + Delta.X,
+            StartPosition.Y.Scale,
+            StartPosition.Y.Offset + Delta.Y
+        )
+    end
+end)
+
+GUI.Destroying:Connect(function()
+    Running = false
+    AutoScan = false
+    AutoGet = false
+    AutoPortal = false
+    AutoSmelter = false
+    AutoLift = false
+    SmeltAt = nil
+    GoldBeforeSmelt = nil
+    LiftRequested = false
+    LastLift = -math.huge
+    DragConnection:Disconnect()
+end)
+
+-- CHARACTER
+local function GetRoot()
+    local Character = Player.Character
+    if not Character then return end
+
+    local Humanoid =
+        Character:FindFirstChildOfClass("Humanoid")
+
+    if not Humanoid or Humanoid.Health <= 0 then
+        return
+    end
+
+    return Character:FindFirstChild("HumanoidRootPart")
+end
+
+-- PROMPT POSITION
+local function GetPosition(Prompt)
+    local Parent = Prompt and Prompt.Parent
+    if not Parent then return end
+
+    if Parent:IsA("Attachment") then
+        return Parent.WorldPosition
+
+    elseif Parent:IsA("BasePart") then
+        return Parent.Position
+
+    elseif Parent:IsA("Model") then
+        return Parent:GetPivot().Position
+    end
+end
+
+-- TELEPORT SYSTEM
+local function Teleport(Position)
+    local Root = GetRoot()
+
+    if not Root or not Position or not Running then
+        return false
+    end
+
+    Root.CFrame = CFrame.new(
+        Position + Vector3.new(0, 3, 0)
+    )
+
+    Root.AssemblyLinearVelocity = Vector3.zero
+    Root.AssemblyAngularVelocity = Vector3.zero
+
+    return true
+end
+
+-- FIND PROMPT
+local function FindPrompt(Filter, MaxDistance)
+    local Root = GetRoot()
+    if not Root then return end
+
+    local Nearest
+    local Distance = MaxDistance or math.huge
+
+    for _, Object in ipairs(workspace:GetDescendants()) do
+        if Object:IsA("ProximityPrompt")
+            and Object.Enabled
+            and Filter(Object) then
+
+            local Position = GetPosition(Object)
+
+            if Position then
+                local Magnitude =
+                    (Root.Position - Position).Magnitude
+
+                if Magnitude < Distance then
+                    Distance = Magnitude
+                    Nearest = Object
+                end
+            end
+        end
+    end
+
+    return Nearest
+end
+
+-- FIND SCANNER
+local function FindScanner()
+    return FindPrompt(function(Object)
+        return Object.Name == "@SCAN_PROMPT"
+            or Object.ActionText:lower() == "scan for gold ore"
+    end)
+end
+
+-- FIND DIG
+local function FindDig()
+    return FindPrompt(function(Object)
+        return Object.ActionText:lower() == "dig"
+            and Object.ObjectText == "WGC Gold Hunters"
+    end, 15)
+end
+
+-- FIND PORTAL
+local function FindPortal()
+    return FindPrompt(function(Object)
+        local Action = Object.ActionText:lower()
+        local Name = Object.ObjectText:lower()
+
+        return Action:find("teleport", 1, true)
+            and (
+                Name:find("pemburu emas 2.0", 1, true)
+                or Name:find("gold hunters 2.0", 1, true)
+            )
+    end)
+end
+
+-- EXACT SMELTER PATH
+local function FindSmelting()
+    local Interactable =
+        workspace:FindFirstChild("Interactable")
+
+    if not Interactable then return end
+
+    local Smelter =
+        Interactable:FindFirstChild("Smelter")
+
+    if not Smelter then return end
+
+    local Attachment =
+        Smelter:FindFirstChild("Attachment")
+
+    if not Attachment then return end
+
+    local Prompt =
+        Attachment:FindFirstChild("@PROMPT")
+
+    if Prompt
+        and Prompt:IsA("ProximityPrompt")
+        and Prompt.Enabled
+        and Prompt.ActionText:lower() == "smelt" then
+
+        return Prompt
+    end
+
+    return nil
+end
+
+-- GOLD LOCATIONS
+local function GetLocations()
+    local Locations = {}
+
+    for _, Object in ipairs(workspace:GetChildren()) do
+        if Object:IsA("Model")
+            and Object.Name == "Location Beam"
+            and not Visited[Object] then
+
+            table.insert(Locations, Object)
+        end
+    end
+
+    return Locations
+end
+
+-- NEAREST GOLD
+local function GetNearestGold()
+    local Root = GetRoot()
+    if not Root then return end
+
+    local Nearest
+    local Distance = math.huge
+
+    for _, Gold in ipairs(GetLocations()) do
+        local Magnitude =
+            (Root.Position - Gold:GetPivot().Position).Magnitude
+
+        if Magnitude < Distance then
+            Distance = Magnitude
+            Nearest = Gold
+        end
+    end
+
+    return Nearest
+end
+
+-- AUTO INTERACT
+local function Activate(Prompt)
+    if not Running
+        or not Prompt
+        or not Prompt.Parent
+        or not Prompt.Enabled then
+
+        return false
+    end
+
+    if type(fireproximityprompt) ~= "function" then
+        Status.Text = "Executor unsupported"
+        return false
+    end
+
+    local Success, Error = pcall(function()
+        fireproximityprompt(Prompt)
+    end)
+
+    if not Success then
+        warn("[OREO INTERACT]", Error)
+    end
+
+    return Success
+end
+
+-- AUTO TELEPORT PORTAL
+local function ReturnPortal()
+    if not Running or not AutoPortal then
+        return false
+    end
+
+    local Portal = FindPortal()
+
+    if not Portal then
+        Status.Text = "Portal not found"
+        return false
+    end
+
+    Status.Text = "Teleporting to portal..."
+
+    if not Teleport(GetPosition(Portal)) then
+        return false
+    end
+
+    task.wait(PORTAL_DELAY)
+
+    if not Running or not AutoPortal then
+        return false
+    end
+
+    if not Portal.Parent or not Portal.Enabled then
+        return false
+    end
+
+    Status.Text = "Activating portal..."
+
+    if Activate(Portal) then
+        PortalActivated = true
+        Status.Text = "Portal requested"
+
+        print("[OREO HUB] PORTAL REQUESTED")
+
+        task.wait(2)
+        return true
+    end
+
+    return false
+end
+
+-- Read the exact HUD counter, without guessing a missing value.
+local function ReadGoldBars()
+    local Node = PlayerGui
+    for _, Name in ipairs({"HUD", "GoldCounters", "GoldBarCounter", "Counter"}) do
+        Node = Node:FindFirstChild(Name)
+        if not Node then return nil end
+    end
+    if not (Node:IsA("TextLabel") or Node:IsA("TextButton")) then return nil end
+    return tonumber((Node.Text:gsub("[, %s]", "")))
+end
+
+-- AUTO TELEPORT SMELTER + AUTO E
+local function SmeltGold()
+    if not Running or not AutoSmelter then
+        return
+    end
+
+    local Prompt = FindSmelting()
+
+    if not Prompt then
+        Status.Text = "Waiting for Smelter..."
+        return
+    end
+
+    local Root = GetRoot()
+    local Position = GetPosition(Prompt)
+
+    if not Root or not Position then
+        return
+    end
+
+    local Distance =
+        (Root.Position - Position).Magnitude
+
+    if Distance > 5 then
+        Status.Text = "Teleporting to Smelter..."
+
+        if not Teleport(Position) then
+            return
+        end
+
+        task.wait(1)
+    end
+
+    if not Running or not AutoSmelter then
+        return
+    end
+
+    Prompt = FindSmelting()
+    Root = GetRoot()
+
+    if not Prompt or not Root then
+        return
+    end
+
+    Position = GetPosition(Prompt)
+
+    if not Position
+        or (Root.Position - Position).Magnitude
+            > Prompt.MaxActivationDistance then
+
+        Status.Text = "Smelter out of range"
+        return
+    end
+
+    local Before = ReadGoldBars()
+    if Before == nil then
+        Status.Text = "Waiting for Gold Bar counter..."
+        warn("[OREO V15] Gold bar counter missing or not numeric")
+        return
+    end
+    Status.Text = "Activating Peleburan..."
+
+    if Activate(Prompt) then
+        if not SmeltAt then
+            GoldBeforeSmelt = Before
+            SmeltAt = os.clock()
+        end
+        Status.Text = "Smelt requested"
+        Status.TextColor3 = Color3.fromRGB(80, 255, 120)
+
+        print("[OREO HUB] AUTO E SMELTER REQUESTED")
+    else
+        Status.Text = "Smelt failed"
+    end
+end
+
+-- AUTO LIFT: exact object and action, not ambiguous path
+local function ReturnLift()
+    local Prompt = FindPrompt(function(Object)
+        return Object.Name == "PROMPT"
+            and Object.ActionText == "Teleport"
+            and Object.ObjectText == "Lift"
+            and Object:IsDescendantOf(workspace:FindFirstChild("Interactable") or workspace)
+    end)
+    if not Prompt then Status.Text = "Lift not found"; return end
+    Status.Text = "Teleporting to Lift..."
+    if not Teleport(GetPosition(Prompt)) then return end
+    task.wait(PORTAL_DELAY)
+    if not Running or not AutoLift or not Prompt.Parent or not Prompt.Enabled then return end
+    local Root, Position = GetRoot(), GetPosition(Prompt)
+    if not Root or not Position or (Root.Position - Position).Magnitude > Prompt.MaxActivationDistance then
+        Status.Text = "Lift out of range"
+        return
+    end
+    if Activate(Prompt) then
+        LiftRequested = true
+        Status.Text = "Lift requested"
+        print("[OREO V15] LIFT REQUESTED")
+    end
+end
+
+-- AUTO STOP 10 DIG
+local function Finish()
+    if Completed then return end
+
+    Completed = true
+    AutoScan = false
+    AutoGet = false
+
+    UpdateToggle()
+    UpdateProgress()
+
+    Status.Text = "10/10 | Completed"
+end
+
+-- AUTO SCAN GOLD
+local function ScanGold()
+    if Completed then return end
+
+    local Scanner = FindScanner()
+
+    if not Scanner then
+        Status.Text = "Scanner not found"
+        return
+    end
+
+    Status.Text = "Scanning gold..."
+
+    if Teleport(GetPosition(Scanner)) then
+        task.wait(0.7)
+
+        if AutoScan and Running and not Completed then
+            Activate(Scanner)
+            task.wait(SCAN_DELAY)
+        end
+    end
+end
+
+-- AUTO GET GOLD
+local function CollectGold()
+    if Progress >= LIMIT then
+        Finish()
+        return
+    end
+
+    local Gold = GetNearestGold()
+    if not Gold then return end
+
+    Status.Text = "Moving to gold..."
+
+    if not Teleport(Gold:GetPivot().Position) then
+        return
+    end
+
+    local Prompt
+
+    for Attempt = 1, 20 do
+        if not Running or not AutoGet or Completed then
+            return
+        end
+
+        Prompt = FindDig()
+
+        if Prompt then break end
+
+        task.wait(0.25)
+    end
+
+    if not Prompt then
+        Visited[Gold] = true
+        Status.Text = "Dig prompt not found"
+        return
+    end
+
+    Status.Text = "Digging gold..."
+
+    if not Teleport(GetPosition(Prompt)) then
+        return
+    end
+
+    task.wait(0.5)
+
+    if not Running or not AutoGet or Completed then
+        return
+    end
+
+    if Activate(Prompt) then
+        Progress = math.min(Progress + 1, LIMIT)
+        Visited[Gold] = true
+
+        UpdateProgress()
+
+        if Progress >= LIMIT then
+            Finish()
+            return
+        end
+
+        task.wait(DIG_DELAY)
+    end
+end
+
+-- AUTO START: immediately when game and character are ready
+UpdateToggle()
+UpdateProgress()
+while Running and GUI.Parent and not CharacterReady() do
+    Status.Text = "Waiting for game and character..."
+    task.wait(0.25)
+end
+if not Running or not GUI.Parent then return end
+AutoScan = true
+AutoGet = true
+AutoPortal = true
+AutoSmelter = true
+AutoLift = true
+UpdateToggle()
+Status.Text = "All features enabled"
+
+-- MAIN LOOP
+-- SINGLE WORKER TO PREVENT TELEPORT CONFLICT
+task.spawn(function()
+    while Running and GUI.Parent do
+        if not Busy then
+            Busy = true
+
+            local Success, Error = pcall(function()
+                local Locations = GetLocations()
+
+                Counter.Text =
+                    "Gold Locations: " .. #Locations
+
+                -- Resume smelting when already in the smelter area.
+                if LiftRequested then
+                    return
+                end
+
+                if AutoLift and SmeltAt then
+                    local Current = ReadGoldBars()
+                    if Current == nil or GoldBeforeSmelt == nil then
+                        Status.Text = "Waiting for Gold Bar counter..."
+                    elseif Current <= GoldBeforeSmelt then
+                        Status.Text = string.format("Waiting Gold Bars: %d > %d", Current, GoldBeforeSmelt)
+                        if AutoSmelter and os.clock() - LastSmelt >= 8 then
+                            LastSmelt = os.clock()
+                            SmeltGold()
+                        end
+                    elseif os.clock() - LastLift >= 3 then
+                        Status.Text = string.format("Gold Bars: %d -> %d", GoldBeforeSmelt, Current)
+                        LastLift = os.clock()
+                        ReturnLift()
+                    end
+                    return
+                end
+
+                local Smelter = AutoSmelter and FindSmelting()
+                local Root = GetRoot()
+                local SmelterPosition = Smelter and GetPosition(Smelter)
+                local NearSmelter = Root and SmelterPosition and (Root.Position - SmelterPosition).Magnitude <= 30
+                if Smelter and (Completed or PortalActivated or NearSmelter or not FindScanner()) then
+                    if os.clock() - LastSmelt >= SMELT_DELAY then
+                        LastSmelt = os.clock()
+                        SmeltGold()
+                    end
+                    return
+                end
+
+                if Completed and AutoPortal and not PortalActivated then
+                    if os.clock() - LastPortal >= 3 then
+                        LastPortal = os.clock()
+                        ReturnPortal()
+                    end
+                    return
+                end
+
+                if AutoSmelter and (Completed or (not AutoScan and not AutoGet)) then
+                    if os.clock() - LastSmelt >= SMELT_DELAY then
+                        LastSmelt = os.clock()
+                        SmeltGold()
+                    end
+                    return
+                end
+
+                if not Completed and AutoGet and #Locations > 0 then
+                    CollectGold()
+                    return
+                end
+
+                if not Completed and AutoScan and #Locations == 0
+                    and os.clock() - LastScan >= SCAN_DELAY then
+                    LastScan = os.clock()
+                    ScanGold()
+                    return
+                end
+
+                if not Completed
+                    and not AutoScan
+                    and not AutoGet
+                    and not AutoSmelter then
+
+                    Status.Text = "Status: Standby"
+                end
+            end)
+
+            Busy = false
+
+            if not Success then
+                warn("[OREO HUB V15]", Error)
+                Status.Text = "Retrying..."
+                task.wait(2)
+            end
+        end
+
+        task.wait(0.25)
+    end
+end)
+
+UpdateToggle()
+UpdateProgress()
+
+print("========== OREO HUB V15 READY ==========")
+print("AUTO SCAN GOLD: READY")
+print("AUTO GET GOLD: READY")
+print("AUTO STOP 10 DIG: READY")
+print("AUTO TELEPORT PORTAL: READY")
+print("AUTO TELEPORT SMELTER: READY")
+print("AUTO E PELEBURAN: READY")
+print("AUTO TELEPORT LIFT: READY")
